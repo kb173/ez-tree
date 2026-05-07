@@ -38,13 +38,14 @@
   "devDependencies": {
     "@types/three": "^0.169.0",
     "prettier": "3.3.3",
-    "three": "^0.167.x",
+    "three": "^0.169.x",
     "vite": "^5.0.0",
     "vite-plugin-dts": "^3.9.1",
-    "vite-plugin-static-copy": "^1.0.5"
+    "vite-plugin-static-copy": "^1.0.5",
+    "three-mesh-bvh": "^0.9.9"
   },
   "peerDependencies": {
-    "three": ">=0.167"
+    "three": ">=0.169"
   },
   "keywords": [
     "threejs",
@@ -53,5 +54,7 @@
     "generation",
     "tree"
   ],
-  "dependencies": {}
+  "dependencies": {
+    "three-mesh-bvh": "^0.9.9"
+  }
 }

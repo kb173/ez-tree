@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import RNG from './rng';
 import { Branch } from './branch';
 import { Billboard, TreeType } from './enums';
@@ -6,6 +7,14 @@ import TreeOptions from './options';
 import { loadPreset } from './presets/index';
 import { getBarkTexture, getLeafTexture } from './textures';
 import { Trellis } from './trellis';
+import {
+	computeBoundsTree, disposeBoundsTree, acceleratedRaycast, getTriangleHitPointInfo
+} from 'three-mesh-bvh';
+
+// Add the extension functions
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 export class Tree extends THREE.Group {
   /**
@@ -476,19 +485,26 @@ export class Tree extends THREE.Group {
       );
 
       const n = new THREE.Vector3(0, 0, 1).applyEuler(orientation);
+      const vertexNormalWeight = 0.5;
+
+      let n1 = new THREE.Vector3().copy(n).add(v[0]).sub(origin).normalize();
+      let n2 = new THREE.Vector3().copy(n).add(v[1]).sub(origin).normalize();
+      let n3 = new THREE.Vector3().copy(n).add(v[2]).sub(origin).normalize();
+      let n4 = new THREE.Vector3().copy(n).add(v[3]).sub(origin).normalize();
+
       this.leaves.normals.push(
-        n.x,
-        n.y,
-        n.z,
-        n.x,
-        n.y,
-        n.z,
-        n.x,
-        n.y,
-        n.z,
-        n.x,
-        n.y,
-        n.z,
+        n1.x,
+        n1.y,
+        n1.z,
+        n2.x,
+        n2.y,
+        n2.z,
+        n3.x,
+        n3.y,
+        n3.z,
+        n4.x,
+        n4.y,
+        n4.z,
       );
       this.leaves.uvs.push(0, 1, 0, 0, 1, 0, 1, 1);
       this.leaves.indices.push(i, i + 1, i + 2, i, i + 2, i + 3);
@@ -565,6 +581,50 @@ export class Tree extends THREE.Group {
     this.branchesMesh.receiveShadow = true;
   }
 
+transferNormals(targetGeo, sourceGeo) {
+  sourceGeo.computeBoundsTree();
+
+	targetGeo.deleteAttribute("normal");
+	const closestNormals = new Float32Array(
+		targetGeo.attributes.position.count * 3
+	);
+	targetGeo.setAttribute("normal", new THREE.BufferAttribute(closestNormals, 3));
+
+	const temp = new THREE.Vector3();
+	const closest = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 };
+	for (let i = 0; i < targetGeo.attributes.position.count; i++) {
+		temp.fromBufferAttribute(targetGeo.attributes.position, i);
+		sourceGeo.boundsTree.closestPointToPoint(temp, closest);
+
+		const hitPointInfo = getTriangleHitPointInfo(
+			closest.point,
+			sourceGeo,
+			closest.faceIndex
+		);
+
+		const { barycoord } = hitPointInfo;
+		const i0 = hitPointInfo.face.a;
+		const i1 = hitPointInfo.face.b;
+		const i2 = hitPointInfo.face.c;
+    
+		let normal = THREE.Triangle.getInterpolatedAttribute(
+			sourceGeo.attributes.normal,
+			i0,
+			i1,
+			i2,
+			barycoord,
+			new THREE.Vector3()
+		);
+		normal.normalize();
+
+		const { x, y, z } = normal;
+		closestNormals[i * 3 + 0] = x;
+		closestNormals[i * 3 + 1] = y;
+		closestNormals[i * 3 + 2] = z;
+	}
+	targetGeo.attributes.normal.needsUpdate = true;
+}
+
   /**
    * Generates the geometry for the leaves
    */
@@ -575,14 +635,26 @@ export class Tree extends THREE.Group {
       new THREE.BufferAttribute(new Float32Array(this.leaves.verts), 3),
     );
     g.setAttribute(
+      'normal',
+      new THREE.BufferAttribute(new Float32Array(this.leaves.normals), 3),
+    );
+    g.setAttribute(
       'uv',
       new THREE.BufferAttribute(new Float32Array(this.leaves.uvs), 2),
     );
     g.setIndex(
       new THREE.BufferAttribute(new Uint16Array(this.leaves.indices), 1),
     );
-    g.computeVertexNormals();
+    //g.computeVertexNormals();
     g.computeBoundingSphere();
+
+    // let vert_vectors = []
+    // for (let i = 0; i < this.leaves.verts.length; i += 3) {
+    //   vert_vectors.push(new THREE.Vector3(this.leaves.verts[i], this.leaves.verts[i + 1], this.leaves.verts[i + 2]));
+    // }
+
+    //const hullGeometry = new ConvexGeometry(vert_vectors);
+    //this.transferNormals(g, hullGeometry);
 
     const mat = new THREE.MeshPhongMaterial({
       name: 'leaves',
